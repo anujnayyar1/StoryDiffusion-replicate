@@ -365,33 +365,40 @@ def process_generation(_sd_type, _model_type, _upload_images, _num_steps, style_
     id_prompts, negative_prompt = apply_style(style_name, id_prompts, negative_prompt)
     setup_seed(seed_)
     total_results = []
+    base_name = "identity"
     if _model_type == "original":
         id_images = pipe(id_prompts, num_inference_steps=_num_steps, guidance_scale=guidance_scale, height=height, width=width, negative_prompt=negative_prompt, generator=generator).images
     elif _model_type == "Photomaker":
         id_images = pipe(id_prompts, input_id_images=input_id_images, num_inference_steps=_num_steps, guidance_scale=guidance_scale, start_merge_step=start_merge_step, height=height, width=width, negative_prompt=negative_prompt, generator=generator).images
-    total_results.extend(id_images)
+    total_results.extend(save_images_and_collect_paths(id_images, base_name))
     yield total_results
 
+    # Real Scenario Image Generation
     real_images = []
+    base_name = "real"
     write = False
-    for real_prompt in real_prompts:
+    for index, real_prompt in enumerate(real_prompts):
         setup_seed(seed_)
         cur_step = 0
         real_prompt = apply_style_positive(style_name, real_prompt)
         if _model_type == "original":
-            real_images.append(pipe(real_prompt, num_inference_steps=_num_steps, guidance_scale=guidance_scale, height=height, width=width, negative_prompt=negative_prompt, generator=generator).images[0])
+            image = pipe(real_prompt, num_inference_steps=_num_steps, guidance_scale=guidance_scale, height=height, width=width, negative_prompt=negative_prompt, generator=generator).images[0]
         elif _model_type == "Photomaker":
-            real_images.append(pipe(real_prompt, input_id_images=input_id_images, num_inference_steps=_num_steps, guidance_scale=guidance_scale, start_merge_step=start_merge_step, height=height, width=width, negative_prompt=negative_prompt, generator=generator).images[0])
-        total_results.append(real_images[-1])
+            image = pipe(real_prompt, input_id_images=input_id_images, num_inference_steps=_num_steps, guidance_scale=guidance_scale, start_merge_step=start_merge_step, height=height, width=width, negative_prompt=negative_prompt, generator=generator).images[0]
+        real_images.append(image)
+        image_path = save_images_and_collect_paths([image], f"{base_name}_{index + 1}")
+        total_results.extend(image_path)
         yield total_results
 
+    # Comic Generation
     if _comic_type != "No typesetting":
         captions = prompt_array.splitlines()
         captions = [caption.replace("[NC]", "") for caption in captions]
         captions = [caption.split('#')[-1] if "#" in caption else caption for caption in captions]
         from PIL import ImageFont
         comic_image = get_comic(id_images + real_images, _comic_type, captions=captions, font=ImageFont.truetype("./fonts/Inkfree.ttf", int(45)))
-        total_results.append(comic_image)
+        comic_path = save_images_and_collect_paths([comic_image], "comic_final")
+        total_results.extend(comic_path)
     yield total_results
 
 def array2string(arr):
@@ -404,11 +411,15 @@ def array2string(arr):
 
     return stringtmp
 
-def save_images_and_collect_paths(images):
+def save_images_and_collect_paths(images, base_name):
     image_objects = []
     for index, image in enumerate(images):
-        image_objects.append(image)
+        # Construct path with base_name and index
+        img_path = f"/content/{base_name}_{index + 1}.png"
+        image.save(img_path)
+        image_objects.append(img_path)
     return image_objects
+
 
 def remove_duplicates_and_save(images, save_path):
     unique_images_paths = []
