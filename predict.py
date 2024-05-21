@@ -391,7 +391,8 @@ def process_generation(_sd_type, _model_type, _upload_images, _num_steps, style_
         captions = [caption.split('#')[-1] if "#" in caption else caption for caption in captions]
         from PIL import ImageFont
         comic_image = get_comic(id_images + real_images, _comic_type, captions=captions, font=ImageFont.truetype("./fonts/Inkfree.ttf", int(45)))
-        total_results.append(comi
+        total_results.append(comic_image)
+    yield total_results
 
 def array2string(arr):
     stringtmp = ""
