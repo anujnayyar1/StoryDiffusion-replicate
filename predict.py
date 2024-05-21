@@ -303,58 +303,61 @@ def apply_style(style_name: str, positives: list, negative: str = ""):
 def process_generation(_sd_type, _model_type, _upload_images, _num_steps, style_name, _Ip_Adapter_Strength, _style_strength_ratio, guidance_scale, seed_,  sa32_, sa64_, id_length_,  general_prompt, negative_prompt, prompt_array, G_height, G_width, _comic_type, pipe2, pipe4):
     _model_type = "Photomaker" if _model_type == "Using Ref Images" else "original"
     if _model_type == "Photomaker" and "img" not in general_prompt:
-        print(f"Please add the trigger word \"img\" behind the class word you want to customize, such as: man img or woman img")
+        print(f"Please add the triger word \" img \"  behind the class word you want to customize, such as: man img or woman img")
     if _upload_images is None and _model_type != "original":
         print(f"Cannot find any input face image!")
     if len(prompt_array.splitlines()) > 10:
-        print(f"No more than 10 prompts in huggingface demo for Speed! But found {len(prompt_array.splitlines())} prompts!")
-
-    global sa32, sa64, id_length, total_length, attn_procs, unet, cur_model_type, device
+        print(f"No more than 10 prompts in huggface demo for Speed! But found {len(prompt_array.splitlines())} prompts!")
+    global sa32, sa64,id_length,total_length,attn_procs,unet,cur_model_type,device
     global num_steps
     global write
-    global cur_step, attn_count
-    global height, width
+    global cur_step,attn_count
+    global height,width
     height = G_height
     width = G_width
-    global sd_model_path, models_dict
+    global sd_model_path,models_dict
     sd_model_path = models_dict[_sd_type]
-    num_steps = _num_steps
+    num_steps =_num_steps
     use_safe_tensor = True
-    if style_name == "(No style)":
+    if  style_name == "(No style)":
         sd_model_path = models_dict["RealVision"]
     if _model_type == "original":
         pipe = StableDiffusionXLPipeline.from_pretrained(sd_model_path, torch_dtype=torch.float16)
         pipe = pipe.to(device)
-        set_attention_processor(pipe.unet, id_length_, is_ipadapter=False)
+        pipe.enable_freeu(s1=0.6, s2=0.4, b1=1.1, b2=1.2)
+        set_attention_processor(pipe.unet,id_length_,is_ipadapter = False)
     elif _model_type == "Photomaker":
         if _sd_type != "RealVision" and style_name != "(No style)":
             pipe = pipe2.to(device)
             pipe.id_encoder.to(device)
-            set_attention_processor(pipe.unet, id_length_, is_ipadapter=False)
+            set_attention_processor(pipe.unet,id_length_,is_ipadapter = False)
         else:
             pipe = pipe4.to(device)
             pipe.id_encoder.to(device)
-            set_attention_processor(pipe.unet, id_length_, is_ipadapter=False)
+            set_attention_processor(pipe.unet,id_length_,is_ipadapter = False)
     else:
-        raise NotImplementedError("You should choose between original and Photomaker!", f"But you chose {_model_type}")
+        raise NotImplementedError("You should choice between original and Photomaker!",f"But you choice {_model_type}")
 
     pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
     pipe.enable_freeu(s1=0.6, s2=0.4, b1=1.1, b2=1.2)
-    cur_model_type = _sd_type + "-" + _model_type + "" + str(id_length_)
+    cur_model_type = _sd_type+"-"+_model_type+""+str(id_length_)
     if _model_type != "original":
         input_id_images = []
         for img in _upload_images:
+            print(img)
             input_id_images.append(load_image(img))
     prompts = prompt_array.splitlines()
     start_merge_step = int(float(_style_strength_ratio) / 100 * _num_steps)
     if start_merge_step > 30:
         start_merge_step = 30
+    print(f"start_merge_step:{start_merge_step}")
     generator = torch.Generator(device="cuda").manual_seed(seed_)
-    sa32, sa64 = sa32_, sa64_
+    sa32, sa64 =  sa32_, sa64_
     id_length = id_length_
     clipped_prompts = prompts[:]
-    prompts = [general_prompt + "," + prompt if "[NC]" not in prompt else prompt.replace("[NC]", "") for prompt in clipped_prompts]
+    prompts = [general_prompt + "," + prompt if "[NC]" not in prompt else prompt.replace("[NC]","")  for prompt in clipped_prompts]
     prompts = [prompt.rpartition('#')[0] if "#" in prompt else prompt for prompt in prompts]
+    print(prompts)
     id_prompts = prompts[:id_length]
     real_prompts = prompts[id_length:]
     torch.cuda.empty_cache()
@@ -365,40 +368,38 @@ def process_generation(_sd_type, _model_type, _upload_images, _num_steps, style_
     id_prompts, negative_prompt = apply_style(style_name, id_prompts, negative_prompt)
     setup_seed(seed_)
     total_results = []
-    base_name = "identity"
     if _model_type == "original":
-        id_images = pipe(id_prompts, num_inference_steps=_num_steps, guidance_scale=guidance_scale, height=height, width=width, negative_prompt=negative_prompt, generator=generator).images
+        id_images = pipe(id_prompts, num_inference_steps=_num_steps, guidance_scale=guidance_scale,  height = height, width = width,negative_prompt = negative_prompt,generator = generator).images
     elif _model_type == "Photomaker":
-        id_images = pipe(id_prompts, input_id_images=input_id_images, num_inference_steps=_num_steps, guidance_scale=guidance_scale, start_merge_step=start_merge_step, height=height, width=width, negative_prompt=negative_prompt, generator=generator).images
-    total_results.extend(save_images_and_collect_paths(id_images, base_name))
+        id_images = pipe(id_prompts,input_id_images=input_id_images, num_inference_steps=_num_steps, guidance_scale=guidance_scale, start_merge_step = start_merge_step, height = height, width = width,negative_prompt = negative_prompt,generator = generator).images
+    else: 
+        raise NotImplementedError("You should choice between original and Photomaker!",f"But you choice {_model_type}")
+    total_results = id_images + total_results
     yield total_results
-
-    # Real Scenario Image Generation
     real_images = []
-    base_name = "real"
     write = False
-    for index, real_prompt in enumerate(real_prompts):
+    for real_prompt in real_prompts:
         setup_seed(seed_)
         cur_step = 0
         real_prompt = apply_style_positive(style_name, real_prompt)
-        if _model_type == "original":
-            image = pipe(real_prompt, num_inference_steps=_num_steps, guidance_scale=guidance_scale, height=height, width=width, negative_prompt=negative_prompt, generator=generator).images[0]
-        elif _model_type == "Photomaker":
-            image = pipe(real_prompt, input_id_images=input_id_images, num_inference_steps=_num_steps, guidance_scale=guidance_scale, start_merge_step=start_merge_step, height=height, width=width, negative_prompt=negative_prompt, generator=generator).images[0]
-        real_images.append(image)
-        image_path = save_images_and_collect_paths([image], f"{base_name}_{index + 1}")
-        total_results.extend(image_path)
+        if _model_type == "original":   
+            real_images.append(pipe(real_prompt,  num_inference_steps=_num_steps, guidance_scale=guidance_scale,  height = height, width = width,negative_prompt = negative_prompt,generator = generator).images[0])
+        elif _model_type == "Photomaker":      
+            real_images.append(pipe(real_prompt, input_id_images=input_id_images, num_inference_steps=_num_steps, guidance_scale=guidance_scale,  start_merge_step = start_merge_step, height = height, width = width,negative_prompt = negative_prompt,generator = generator).images[0])
+        else:
+            raise NotImplementedError("You should choice between original and Photomaker!",f"But you choice {_model_type}")
+        total_results = [real_images[-1]] + total_results
         yield total_results
-
-    # Comic Generation
     if _comic_type != "No typesetting":
-        captions = prompt_array.splitlines()
-        captions = [caption.replace("[NC]", "") for caption in captions]
+        captions= prompt_array.splitlines()
+        captions = [caption.replace("[NC]","") for caption in captions]
         captions = [caption.split('#')[-1] if "#" in caption else caption for caption in captions]
         from PIL import ImageFont
-        comic_image = get_comic(id_images + real_images, _comic_type, captions=captions, font=ImageFont.truetype("./fonts/Inkfree.ttf", int(45)))
-        comic_path = save_images_and_collect_paths([comic_image], "comic_final")
-        total_results.extend(comic_path)
+        total_results = get_comic(id_images + real_images, _comic_type,captions= captions,font=ImageFont.truetype("./fonts/Inkfree.ttf", int(45))) + total_results
+    if _model_type == "Photomaker":
+        pipe = pipe2.to("cpu")
+        pipe.id_encoder.to("cpu")
+        set_attention_processor(pipe.unet,id_length_,is_ipadapter = False)
     yield total_results
 
 def array2string(arr):
@@ -411,15 +412,13 @@ def array2string(arr):
 
     return stringtmp
 
-def save_images_and_collect_paths(images, base_name):
+def save_images_and_collect_paths(images, base_path):
     image_objects = []
     for index, image in enumerate(images):
-        # Construct path with base_name and index
-        img_path = f"/content/{base_name}_{index + 1}.png"
-        image.save(img_path)
-        image_objects.append(img_path)
+        filename = f"{base_path}/image_{index+1:04d}.png"  # Formatting to ensure proper ordering, e.g., image_0001.png, image_0002.png, etc.
+        image.save(filename)
+        image_objects.append(Path(filename))
     return image_objects
-
 
 def remove_duplicates_and_save(images, save_path):
     unique_images_paths = []
@@ -472,10 +471,14 @@ class Predictor(BasePredictor):
     ) -> List[Path]:
         input_image = Image.open(input_image)
         input_image.save("/content/StoryDiffusion-hf/examples/taylor/1.jpeg")
-        files=get_image_path_list('/content/StoryDiffusion-hf/examples/taylor')
-        images = process_generation("Unstable", model_type, files, num_steps,style, Ip_Adapter_Strength, style_strength_ratio, guidance_scale, seed_, sa32_, sa64_, id_length_, general_prompt, negative_prompt, prompt_array, G_height, G_width, comic_type, self.pipe2, self.pipe4)
-        image_objects = save_images_and_collect_paths(images)
-        save_path = "/content"
-        unique_images_paths = remove_duplicates_and_save(image_objects, save_path)
-        final_paths = [Path(path) for path in unique_images_paths]
-        return final_paths
+        files = get_image_path_list('/content/StoryDiffusion-hf/examples/taylor')
+        images = process_generation("Unstable", model_type, files, num_steps, style, Ip_Adapter_Strength, style_strength_ratio, guidance_scale, seed_, sa32_, sa64_, id_length_, general_prompt, negative_prompt, prompt_array, G_height, G_width, comic_type, self.pipe2, self.pipe4)
+        
+        # Assuming the base path for saving images
+        base_save_path = "/content/StoryDiffusion-hf/output_images"
+        os.makedirs(base_save_path, exist_ok=True)  # Ensure the directory exists
+        
+        image_paths = save_images_and_collect_paths(images, base_save_path)
+        
+        # No need for removing duplicates here since each image is tied to a prompt and should be unique
+        return image_paths
